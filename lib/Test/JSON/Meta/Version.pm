@@ -4,7 +4,7 @@ use warnings;
 use strict;
 
 use vars qw($VERSION);
-$VERSION = '0.08';
+$VERSION = '0.09';
 
 #----------------------------------------------------------------------------
 
@@ -38,6 +38,9 @@ Validation of META.json data against the META.yml specification elements.
 #Specification Definitions                                                  #
 #############################################################################
 
+my $spec_error = "Missing validation action in specification. "
+  . "Must be one of 'map', 'list', 'lazylist' or 'value'";
+
 my %known_specs = (
     '1.4' => 'http://module-build.sourceforge.net/META-spec-v1.4.html',
     '1.3' => 'http://module-build.sourceforge.net/META-spec-v1.3.html',
@@ -70,15 +73,15 @@ my $no_index_1_1 = {
 
 my $prereq_map = {
     'map' => {
-        ':key' => {
-            name => \&phase,
-            'map' => {
-                ':key'  => {
-                    name => \&relation,
-                    'map' => { ':key' => { name => \&module, value => \&exversion } }
-                }
-            }
+      ':key' => {
+        name => \&phase,
+        'map' => {
+          ':key'  => {
+            name => \&relation,
+            %$module_map1
+          }
         }
+      }
     }
 };
 
@@ -146,7 +149,7 @@ my %definitions = (
 
     # CUSTOM -- additional user defined key/value pairs
     # note we can only validate the key name, as the structure is user defined
-    ':key'        => { name => \&custom_2 },
+    ':key'        => { name => \&custom_2, value => \&anything },
   },
 
 '1.4' => {
@@ -207,7 +210,7 @@ my %definitions = (
 
   # additional user defined key/value pairs
   # note we can only validate the key name, as the structure is user defined
-  ':key'        => { name => \&keyword },
+  ':key'        => { name => \&keyword, value => \&anything },
 },
 
 '1.3' => {
@@ -267,7 +270,7 @@ my %definitions = (
 
   # additional user defined key/value pairs
   # note we can only validate the key name, as the structure is user defined
-  ':key'        => { name => \&keyword },
+  ':key'        => { name => \&keyword, value => \&anything },
 },
 
 # v1.2 is misleading, it seems to assume that a number of fields where created
@@ -331,7 +334,7 @@ my %definitions = (
 
   # additional user defined key/value pairs
   # note we can only validate the key name, as the structure is user defined
-  ':key'        => { name => \&keyword },
+  ':key'        => { name => \&keyword, value => \&anything },
 },
 
 # note that the 1.1 spec doesn't specify optional or mandatory fields, what
@@ -355,7 +358,7 @@ my %definitions = (
 
   # additional user defined key/value pairs
   # note we can only validate the key name, as the structure is user defined
-  ':key'        => { name => \&keyword },
+  ':key'        => { name => \&keyword, value => \&anything },
 },
 
 # note that the 1.0 spec doesn't specify optional or mandatory fields, what
@@ -376,7 +379,7 @@ my %definitions = (
 
   # additional user defined key/value pairs
   # note we can only validate the key name, as the structure is user defined
-  ':key'        => { name => \&keyword },
+  ':key'        => { name => \&keyword, value => \&anything },
 },
 );
 
@@ -508,7 +511,7 @@ sub check_map {
             } elsif($spec->{$key}{'lazylist'}) {
                 $self->check_lazylist($spec->{$key}{'lazylist'},$data->{$key});
             } else {
-                $self->_error( "Missing validation action in specification. Must be one of 'map', 'list', 'lazylist', or 'value' for '$key'." );
+                $self->_error( "$spec_error for '$key'" );
             }
 
         } elsif ($spec->{':key'}) {
@@ -522,7 +525,7 @@ sub check_map {
             } elsif($spec->{':key'}{'lazylist'}) {
                 $self->check_list($spec->{':key'}{'lazylist'},$data->{$key});
             } elsif(!$spec->{':key'}{name}) {
-                $self->_error( "Missing validation action in specification. Must be one of 'map', 'list', 'lazylist', 'name' or 'value' for ':key'." );
+                $self->_error( "$spec_error for ':key'" );
             }
 
         } else {
@@ -571,7 +574,7 @@ sub check_list {
            $self->check_map($spec,$value);
 
         } else {
-            $self->_error( "Missing validation action in specification. Must be one of 'map', 'list', 'lazylist', 'value' or ':key' in the 'list' or 'lazylist' associated with '$self->{stack}[-2]'." );
+          $self->_error( "$spec_error associated with '$self->{stack}[-2]'" );
         }
         pop @{$self->{stack}};
     }
@@ -669,6 +672,11 @@ Validates for a legal phase of a pre-requisite map.
 =item * relation($self,$key,$value)
 
 Validates for a legal relation, within a phase, of a pre-requisite map.
+
+=item * anything($self,$key,$value)
+
+Usually reserved for user defined structures, allowing them to be considered 
+valid without a need for a specification definition for the structure.
 
 =back
 
@@ -859,8 +867,8 @@ sub resource {
 sub keyword {
     my ($self,$key) = @_;
     if(defined $key) {
-        return 1    if($key && $key =~ /^([-_a-z]+)$/);     # spec defined
-        return 1    if($key && $key =~ /^x_([-_a-z]+)$/i);  # user defined
+        return 1    if($key && $key =~ /^([a-z][-_a-z]*)$/);    # spec defined
+        return 1    if($key && $key =~ /^x_([a-z][-_a-z]*)$/i); # user defined
     } else {
         $key = '<undef>';
     }
@@ -927,7 +935,7 @@ sub custom_2 {
     if(defined $key) {
         # a valid user defined key should be alphabetic
         # and begin with x_ or X_
-        return 1    if($key && $key =~ /^x_([-_a-z]+)$/i);  # user defined
+        return 1    if($key && $key =~ /^x_([a-z][-_a-z]*)$/i); # user defined
     } else {
         $key = '<undef>';
     }
@@ -958,6 +966,8 @@ sub relation {
     $self->_error( "Key '$key' is not a legal prereq relationship." );
     return 0;
 }
+
+sub anything { return 1 }
 
 sub _error {
     my $self = shift;
